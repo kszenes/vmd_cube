@@ -1,4 +1,4 @@
-# Modifications from Evangelista's scripts
+# Modifications from Evangelista's script
 
 1. Output all images to a separate directory which can be specified using the `--output`. 
 2. Enable light background instead of dark using `--white`.
