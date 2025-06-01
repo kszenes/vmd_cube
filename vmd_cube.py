@@ -1,8 +1,9 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
 # MIT License
 #
 # Copyright (c) 2017 Francesco Evangelista
+# Modified by Kalman Szenes
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -10,10 +11,10 @@
 # to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
 # copies of the Software, and to permit persons to whom the Software is
 # furnished to do so, subject to the following conditions:
-# 
+#
 # The above copyright notice and this permission notice shall be included in all
 # copies or substantial portions of the Software.
-# 
+#
 # THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 # IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
 # FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
@@ -28,9 +29,11 @@ import re
 import subprocess
 import os
 import datetime
+import shutil
 
 from os import listdir, environ
-from os.path import isfile, join
+from os.path import join
+from textwrap import dedent
 
 vmd_cube_help = """vmd_cube is a script to render cube files with vmd.
 To generate cube files with Psi4 add the command cubeprop() at the end of your input file."""
@@ -81,7 +84,7 @@ axes location Off
 display projection Orthographic
 display depthcue off
 display resize PARAM_IMAGEW PARAM_IMAGEH
-color Display Background white"""
+"""
 
 
 vmd_template_surface = """#
@@ -100,7 +103,7 @@ mol off PARAM_CUBENUM
 
 vmd_template_render = """
 # Render
-render TachyonInternal PARAM_TGAFILE.tga
+render TachyonInternal OUT_CUBEFILE.tga
 mol delete PARAM_CUBENUM
 """
 
@@ -113,30 +116,36 @@ light 0 rot x -30.0
 default_path = os.getcwd()
 
 # Default parameters
-options = {"ISOVALUE"     : [None,"Isosurface Value(s)"],
-           "ISOCOLOR"     : [None,"Isosurface Color(s)"],
-           "ISOCUT"       : [None,"Isosurface Value Cutoff"],
-           "RX"           : [None,"X-axis Rotation"],
-           "RY"           : [None,"Y-axis Rotation"],
-           "RZ"           : [None,"Z-axis Rotation"],
-           "TX"           : [None,"X-axis Translation"],
-           "TY"           : [None,"Y-axis Translation"],
-           "TZ"           : [None,"Z-axis Translation"],
-           "OPACITY"      : [None,"Opacity"],
-           "CUBEDIR"      : [None,"Cubefile Directory"],
-           "SCALE"        : [None,"Scaling Factor"],
-           "MONTAGE"      : [None,"Montage"],
-           "LABEL_MOS"    : [None,"Label MOs"],
-           "FONTSIZE"     : [None,"Font size"],
-           "IMAGEW"       : [None,"Image width"],
-           "IMAGEH"       : [None,"Image height"],
-           "VMDPATH"      : [None,"VMD Path"],
-           "INTERACTIVE"  : [None,"Interactive Mode"],
-           "GZIP"         : [None,"Gzip Cube Files"]}
+options = {
+    "CUBEDIR": [None, "Cubefile Directory"],
+    "OUTDIR": [None, "Output Directory"],
+    "VMDPATH": [None, "VMD Path"],
+    "WHITE": [None, "White Background"],
+    "INTERACTIVE": [None, "Interactive Mode"],
+    "GZIP": [None, "Gzip Cube Files"],
+    "LABEL_MOS": [None, "Label MOs"],
+    "IMAGEW": [None, "Image width"],
+    "IMAGEH": [None, "Image height"],
+    "ISOVALUE": [None, "Isosurface Value(s)"],
+    "ISOCOLOR": [None, "Isosurface Color(s)"],
+    "ISOCUT": [None, "Isosurface Value Cutoff"],
+    "RX": [None, "X-axis Rotation"],
+    "RY": [None, "Y-axis Rotation"],
+    "RZ": [None, "Z-axis Rotation"],
+    "TX": [None, "X-axis Translation"],
+    "TY": [None, "Y-axis Translation"],
+    "TZ": [None, "Z-axis Translation"],
+    "OPACITY": [None, "Opacity"],
+    "SCALE": [None, "Scaling Factor"],
+    "MONTAGE": [None, "Montage"],
+    "FONTSIZE": [None, "Font size"],
+    "USETGA": [True, "Use TGA output instead of PNG (this is expensive)"],
+}
 
 
 def which(program):
     import os
+
     def is_exe(fpath):
         return os.path.isfile(fpath) and os.access(fpath, os.X_OK)
 
@@ -154,16 +163,16 @@ def which(program):
     return None
 
 
-def multigsub(subs,str):
-    for k,v in subs.items():
-        str = re.sub(k,v,str)
+def multigsub(subs, str):
+    for k, v in subs.items():
+        str = re.sub(k, v, str)
     return str
 
 
 def find_vmd(options):
-    if environ['VMDPATH']:
-        vmdpath = environ['VMDPATH']
-        vmdpath = multigsub({" " : r"\ "},vmdpath)
+    if environ["VMDPATH"]:
+        vmdpath = environ["VMDPATH"]
+        vmdpath = multigsub({" ": r"\ "}, vmdpath)
         options["VMDPATH"][0] = vmdpath
     else:
         print("Please set the VMDPATH environmental variable to the path of VMD.")
@@ -171,70 +180,243 @@ def find_vmd(options):
 
 
 def save_setup_command(argv):
-    file_name = join(default_path, 'vmd_cube_command')
-    f = open(file_name, 'w')
-    f.write('# setup command was executed '+datetime.datetime.now().strftime("%d-%B-%Y %H:%M:%S"+"\n"))
-    f.write(" ".join(argv[:])+"\n")
+    file_name = join(default_path, "vmd_cube_command")
+    f = open(file_name, "w")
+    f.write(
+        "# setup command was executed "
+        + datetime.datetime.now().strftime("%d-%B-%Y %H:%M:%S" + "\n")
+    )
+    f.write(" ".join(argv[:]) + "\n")
     f.close()
+
+
+def get_setup_command(argv):
+    cur_time = datetime.datetime.now().strftime("%d-%B-%Y %H:%M:%S")
+    command = f""" 
+        # script generated by vmd_cube.py script from Francesco Evangelista
+        # setup command was executed {cur_time}
+
+        # {" ".join(argv[:])}
+
+        """
+    command = dedent(command)
+    return command
+
+
+def write_header(argv):
+    out_dir = options["OUTDIR"][0]
+    if not os.path.exists(out_dir):
+        os.mkdir(out_dir)
+    else:
+        print(f"Directory {out_dir} already exists.")
+        do_overwrite = input("Do you want to overwrite it? (y/N): ").strip() or "N"
+        if do_overwrite.lower() != "y":
+            print("Specify an empty output directory using the -o flag.")
+            exit(1)
+
+    with open(f"{out_dir}/{vmd_script_name}", "w") as f:
+        f.write("# =================================================================\n")
+        command = get_setup_command(argv)
+        f.write(command)
+
+        print("VMD cube script parameters:")
+        f.write("# VMD cube script parameters:\n")
+        for k in options.keys():
+            print("  %-20s %s" % (options[k][1], str(options[k][0])))
+            f.write("#   %-20s %s\n" % (options[k][1], str(options[k][0])))
+        f.write(
+            "\n#=================================================================\n"
+        )
 
 
 def read_options(options):
     parser = argparse.ArgumentParser(description=vmd_cube_help)
-    parser.add_argument('data', metavar='<cubefile dir>', type=str, nargs='?',default=".",
-                   help='The directory containing the cube files.')
-                   
-    parser.add_argument('--isovalue', metavar='<isovalue>', type=float, nargs='*',default=[0.05,-0.05],
-                   help='a list of isosurface values (a list of floats, default = [0.05,-0.05])')
-    parser.add_argument('--isocolor', metavar='<integer>', type=int, nargs='*',default=[3,23],
-                   help='a list of isosurface color IDs (a list of integers, default = [3,23])')
-    parser.add_argument('--isocut', metavar='<isovalue cutoff>', type=float, nargs='?',default=1.0e-5,
-                   help='cutoff value for rendering an isosurface (float, default = 1.0e-5)')
-                   
-    parser.add_argument('--rx', metavar='<angle>', type=float, nargs='?',default=30.0,
-                   help='the x-axis rotation angle (float, default = 30.0)')
-    parser.add_argument('--ry', metavar='<angle>', type=float, nargs='?',default=40.0,
-                   help='the y-axis rotation angle (float, default = 40.0)')
-    parser.add_argument('--rz', metavar='<angle>', type=float, nargs='?',default=15.0,
-                   help='the z-axis rotation angle (float, default = 15.0)')
-                   
-    parser.add_argument('--tx', metavar='<length>', type=float, nargs='?',default=0.0,
-                   help='the x-axis translation (float, default = 0.0)')
-    parser.add_argument('--ty', metavar='<length>', type=float, nargs='?',default=0.0,
-                   help='the y-axis translation (float, default = 0.0)')
-    parser.add_argument('--tz', metavar='<length>', type=float, nargs='?',default=0.0,
-                   help='the z-axis translation (float, default = 0.0)')
+    parser.add_argument(
+        "data",
+        metavar="<cubefile dir>",
+        type=str,
+        nargs="?",
+        default=".",
+        help="The directory containing the cube files.",
+    )
 
-    parser.add_argument('--opacity', metavar='<opacity>', type=float, nargs='?',default=1.0,
-                   help='opacity of the isosurface (float, default = 1.0)')
+    parser.add_argument(
+        "--isovalue",
+        metavar="<isovalue>",
+        type=float,
+        nargs="*",
+        default=[0.05, -0.05],
+        help="a list of isosurface values (a list of floats, default = [0.05,-0.05])",
+    )
+    parser.add_argument(
+        "--isocolor",
+        metavar="<integer>",
+        type=int,
+        nargs="*",
+        default=[3, 23],
+        help="a list of isosurface color IDs (a list of integers, default = [3,23])",
+    )
+    parser.add_argument(
+        "--isocut",
+        metavar="<isovalue cutoff>",
+        type=float,
+        nargs="?",
+        default=1.0e-5,
+        help="cutoff value for rendering an isosurface (float, default = 1.0e-5)",
+    )
 
-    parser.add_argument('--scale', metavar='<factor>', type=float, nargs='?',default=1.0,
-                   help='the scaling factor (float, default = 1.0)')
-    parser.add_argument('--no-montage', action="store_true",
-                   help='call montage to combine images. (string, default = false)')
-    parser.add_argument('--no-labels', action="store_true",
-                   help='do not add labels to images. (string, default = false)')
+    parser.add_argument(
+        "--rx",
+        metavar="<angle>",
+        type=float,
+        nargs="?",
+        default=30.0,
+        help="the x-axis rotation angle (float, default = 30.0)",
+    )
+    parser.add_argument(
+        "--ry",
+        metavar="<angle>",
+        type=float,
+        nargs="?",
+        default=40.0,
+        help="the y-axis rotation angle (float, default = 40.0)",
+    )
+    parser.add_argument(
+        "--rz",
+        metavar="<angle>",
+        type=float,
+        nargs="?",
+        default=15.0,
+        help="the z-axis rotation angle (float, default = 15.0)",
+    )
 
-    parser.add_argument('--imagew', metavar='<integer>', type=int, nargs='?',default=250,
-                   help='the width of images (integer, default = 250)')
-    parser.add_argument('--imageh', metavar='<integer>', type=int, nargs='?',default=250,
-                   help='the height of images (integer, default = 250)')
-    parser.add_argument('--fontsize', metavar='<integer>', type=int, nargs='?',default=20,
-                   help='the font size (integer, default = 20)')
+    parser.add_argument(
+        "--tx",
+        metavar="<length>",
+        type=float,
+        nargs="?",
+        default=0.0,
+        help="the x-axis translation (float, default = 0.0)",
+    )
+    parser.add_argument(
+        "--ty",
+        metavar="<length>",
+        type=float,
+        nargs="?",
+        default=0.0,
+        help="the y-axis translation (float, default = 0.0)",
+    )
+    parser.add_argument(
+        "--tz",
+        metavar="<length>",
+        type=float,
+        nargs="?",
+        default=0.0,
+        help="the z-axis translation (float, default = 0.0)",
+    )
 
-    parser.add_argument('--interactive', action="store_true",
-                   help='run in interactive mode (default = false)')
+    parser.add_argument(
+        "--opacity",
+        metavar="<opacity>",
+        type=float,
+        nargs="?",
+        default=1.0,
+        help="opacity of the isosurface (float, default = 1.0)",
+    )
 
-    parser.add_argument('--gzip', action="store_true",
-                   help='gzip cube files (default = false)')
+    parser.add_argument(
+        "--scale",
+        metavar="<factor>",
+        type=float,
+        nargs="?",
+        default=1.0,
+        help="the scaling factor (float, default = 1.0)",
+    )
+    parser.add_argument(
+        "--no-montage",
+        action="store_true",
+        help="call montage to combine images. (string, default = false)",
+    )
+    parser.add_argument(
+        "--no-labels",
+        action="store_true",
+        help="do not add labels to images. (string, default = false)",
+    )
 
-    parser.add_argument('--national_scheme', action="store_true",
-                   help='use a red/blue color scheme. (string, default = false)')
-    parser.add_argument('--silver_scheme', action="store_true",
-                   help='use a gray/white color scheme. (string, default = false)')
-    parser.add_argument('--bright_scheme', action="store_true",
-                   help='use a soft yellow/blue color scheme. (string, default = false)')
-    parser.add_argument('--electron_scheme', action="store_true",
-                   help='use a purple/green color scheme. (string, default = false)')
+    parser.add_argument(
+        "--imagew",
+        metavar="<integer>",
+        type=int,
+        nargs="?",
+        default=1000,
+        help="the width of images (integer, default = 250)",
+    )
+    parser.add_argument(
+        "--imageh",
+        metavar="<integer>",
+        type=int,
+        nargs="?",
+        default=1000,
+        help="the height of images (integer, default = 250)",
+    )
+    parser.add_argument(
+        "--fontsize",
+        metavar="<integer>",
+        type=int,
+        nargs="?",
+        default=20,
+        help="the font size (integer, default = 20)",
+    )
+
+    parser.add_argument(
+        "-i",
+        "--interactive",
+        action="store_true",
+        help="run in interactive mode (default = false)",
+    )
+
+    parser.add_argument(
+        "-o",
+        "--output",
+        default="cube_figs",
+        help="output directory name (default = inpdir/cube_figs)",
+    )
+    parser.add_argument(
+        "--tga",
+        action="store_true",
+        default=False,
+        help="use tga output instead of png (expensive)",
+    )
+
+    parser.add_argument(
+        "--gzip", action="store_true", help="gzip cube files (default = false)"
+    )
+
+    parser.add_argument(
+        "--national_scheme",
+        action="store_true",
+        help="use a red/blue color scheme. (string, default = false)",
+    )
+    parser.add_argument(
+        "--silver_scheme",
+        action="store_true",
+        help="use a gray/white color scheme. (string, default = false)",
+    )
+    parser.add_argument(
+        "--bright_scheme",
+        action="store_true",
+        help="use a soft yellow/blue color scheme. (string, default = false)",
+    )
+    parser.add_argument(
+        "--electron_scheme",
+        action="store_true",
+        help="use a purple/green color scheme. (string, default = false)",
+    )
+    parser.add_argument(
+        "--white",
+        action="store_true",
+        help="use white background (string, default = false)",
+    )
 
     args = parser.parse_args()
 
@@ -257,23 +439,22 @@ def read_options(options):
     options["IMAGEH"][0] = str(args.imageh)
     options["INTERACTIVE"][0] = str(args.interactive)
     options["GZIP"][0] = str(args.gzip)
+    options["WHITE"][0] = str(args.white)
+    options["OUTDIR"][0] = f"{str(args.data)}/{str(args.output)}"
+    options["USETGA"][0] = str(args.tga)
 
     if args.national_scheme:
-        options["ISOCOLOR"][0] = [23,30]
+        options["ISOCOLOR"][0] = [23, 30]
 
     if args.silver_scheme:
-        options["ISOCOLOR"][0] = [2,8]
+        options["ISOCOLOR"][0] = [2, 8]
 
     if args.electron_scheme:
-        options["ISOCOLOR"][0] = [13,12]
+        options["ISOCOLOR"][0] = [13, 12]
 
     if args.bright_scheme:
-        options["ISOCOLOR"][0] = [32,22]
+        options["ISOCOLOR"][0] = [32, 22]
 
-    print("Parameters:")
-    sorted_parameters = sorted(options.keys())
-    for k in sorted_parameters:
-        print("  %-20s %s" % (options[k][1],str(options[k][0])))
 
 def find_cubes(options):
     # Find all the cube files in a given directory
@@ -282,17 +463,17 @@ def find_cubes(options):
     zipped_files = []
 
     for f in listdir(options["CUBEDIR"][0]):
-        if "\'" in f:
-            nf = f.replace("\'", "p")
-            os.rename(f,nf)
+        if "'" in f:
+            nf = f.replace("'", "p")
+            os.rename(f, nf)
             f = nf
-        if "\"" in f:
-            nf = f.replace("\"", "pp")
-            os.rename(f,nf)
+        if '"' in f:
+            nf = f.replace('"', "pp")
+            os.rename(f, nf)
             f = nf
-        if f[-5:] == '.cube':
+        if f[-5:] == ".cube":
             sorted_files.append(f)
-        elif f[-8:] == '.cube.gz':
+        elif f[-8:] == ".cube.gz":
             found_zipped = True
             # unzip file
             sorted_files.append(f[:-3])
@@ -300,86 +481,106 @@ def find_cubes(options):
 
     if len(zipped_files) > 0:
         print("\nDecompressing gzipped cube files")
-        FNULL = open(os.devnull, 'w')
-        subprocess.call(("gzip -d %s" % " ".join(zipped_files)),stdout=FNULL, shell=True)
-        options["GZIP"][0] = 'True'
+        FNULL = open(os.devnull, "w")
+        subprocess.call(
+            ("gzip -d %s" % " ".join(zipped_files)), stdout=FNULL, shell=True
+        )
+        options["GZIP"][0] = "True"
 
     return sorted(sorted_files)
 
 
-def write_and_run_vmd_script(options,cube_files):
-    vmd_script = open(vmd_script_name,"w+")
+def write_and_run_vmd_script(options, cube_files):
+    out_dir = options["OUTDIR"][0]
+
+    vmd_script = open(f"{out_dir}/{vmd_script_name}", "a+")
     vmd_script.write(vmd_template_rotate)
 
     # Define a map that contains all the values of the VMD parameters
     replacement_map = {}
-    for (k, v) in options.items():
+    for k, v in options.items():
         key = "PARAM_" + k.upper()
         replacement_map[key] = v[0]
 
-    for n,f in enumerate(cube_files):
-        replacement_map["PARAM_CUBENUM"] = '%03d' % n
-        replacement_map["PARAM_CUBEFILE"] = options["CUBEDIR"][0] + '/' + f[:-5]
-        replacement_map["PARAM_TGAFILE"] = replacement_map["PARAM_CUBEFILE"]                
-        parts = replacement_map["PARAM_CUBEFILE"].split('_')
-        if parts[0] == './Psi':
-            pretty = f'{parts[0]}_{parts[1]}_{int(parts[2]):04d}_{parts[3]}'
-            replacement_map["PARAM_TGAFILE"] = pretty
+    for n, f in enumerate(cube_files):
+        replacement_map["PARAM_CUBENUM"] = "%03d" % n
+        replacement_map["PARAM_CUBEFILE"] = options["CUBEDIR"][0] + "/" + f[:-5]
+        replacement_map["OUT_CUBEFILE"] = f"{out_dir}/{f[:-5]}"
 
         # Default isocontour values or user-provided
         isovalue = options["ISOVALUE"][0][:]
         isocolor = options["ISOCOLOR"][0][:]
-        
+
         # Read isocontour values from file, if available
-        with open(f,'r') as file:
+        with open(f"{options['CUBEDIR'][0]}/{f}", "r") as file:
             l1 = file.readline()
             l2 = file.readline()
-            m = re.search(r'density: \(([-+]?[0-9]*\.?[0-9]+)\,([-+]?[0-9]*\.?[0-9]+)\)',l2)
+            m = re.search(
+                r"density: \(([-+]?[0-9]*\.?[0-9]+)\,([-+]?[0-9]*\.?[0-9]+)\)", l2
+            )
             if m:
                 isovalue[0] = float(m.groups()[0])
                 isovalue[1] = float(m.groups()[1])
 
         nisovalue = len(isovalue)
         nisocolor = len(isocolor)
-        if nisovalue!= nisocolor:
-            print("Quitting: Please specify the same number of isosurface values and colors.")
+        if nisovalue != nisocolor:
+            print(
+                "Quitting: Please specify the same number of isosurface values and colors."
+            )
             quit()
         else:
             print("Plotting %s with isosurface values" % (f), str(isovalue))
 
         vmd_script_surface = ""
-        surf = zip(isovalue,isocolor)
+        surf = zip(isovalue, isocolor)
         for c in surf:
             if abs(c[0]) > float(options["ISOCUT"][0]):
                 replacement_map["PARAM_ISOVALUE"] = str(c[0])
                 replacement_map["PARAM_ISOCOLOR"] = str(c[1])
-                vmd_script_surface += multigsub(replacement_map,vmd_template_surface)
+                vmd_script_surface += multigsub(replacement_map, vmd_template_surface)
             else:
                 print(" * Skipping isosurface with isocontour value %f" % c[0])
-        vmd_script_head = multigsub(replacement_map,vmd_template)
-        
-        if options["INTERACTIVE"][0] == 'True':
-            vmd_script_render = multigsub(replacement_map,vmd_template_interactive)
+        vmd_script_head = multigsub(replacement_map, vmd_template)
+
+        if options["WHITE"][0] == "True":
+            vmd_script_head += "color Display Background white"
+
+        if options["INTERACTIVE"][0] == "True":
+            vmd_script_render = multigsub(replacement_map, vmd_template_interactive)
         else:
-            vmd_script_render = multigsub(replacement_map,vmd_template_render)
+            vmd_script_render = multigsub(replacement_map, vmd_template_render)
 
-        vmd_script.write(vmd_script_head + "\n" + vmd_script_surface + "\n" + vmd_script_render)
+        vmd_script.write(
+            vmd_script_head + "\n" + vmd_script_surface + "\n" + vmd_script_render
+        )
 
-    if options["INTERACTIVE"][0] == 'False':
+    if options["INTERACTIVE"][0] == "False":
         vmd_script.write("quit")
         vmd_script.close()
         # Call VMD in text mode
-        FNULL = open(os.devnull, 'w')
-        subprocess.call(("%s -dispdev text -e %s" % (options["VMDPATH"][0],vmd_script_name)),stdout=FNULL, shell=True)
+        FNULL = open(os.devnull, "w")
+        subprocess.call(
+            (
+                "%s -dispdev text -e %s"
+                % (options["VMDPATH"][0], f"{out_dir}/{vmd_script_name}")
+            ),
+            stdout=FNULL,
+            shell=True,
+        )
     else:
         vmd_script.close()
         # Call VMD in graphic mode
-        FNULL = open(os.devnull, 'w')
-        subprocess.call(("%s -e %s" % (options["VMDPATH"][0],vmd_script_name)),stdout=FNULL, shell=True)
+        FNULL = open(os.devnull, "w")
+        subprocess.call(
+            ("%s -e %s" % (options["VMDPATH"][0], f"{out_dir}/{vmd_script_name}")),
+            stdout=FNULL,
+            shell=True,
+        )
 
 
-def call_montage(options,cube_files):
-    if options["MONTAGE"][0] == 'True':
+def call_montage(options, cube_files):
+    if options["MONTAGE"][0] == "True":
         # Optionally, combine all figures into one image using montage
         montage_exe = which("montage")
         if montage_exe:
@@ -400,44 +601,82 @@ def call_montage(options,cube_files):
 
             # Sort the MOs
             sorted_mos = []
-            for set in [alpha_mos,beta_mos]:
+            for set in [alpha_mos, beta_mos]:
                 sorted_set = []
                 for s in set:
-                    s_split = s.split('_')
-                    sorted_set.append((int(s_split[2]),"Psi_a_%s_%s" % (s_split[2],s_split[3])))
+                    s_split = s.split("_")
+                    sorted_set.append(
+                        (int(s_split[2]), "Psi_a_%s_%s" % (s_split[2], s_split[3]))
+                    )
                 sorted_set = sorted(sorted_set)
                 sorted_mos.append([s[1] for s in sorted_set])
-           
+
             os.chdir(options["CUBEDIR"][0])
-                    
+
             # Add labels
-            if options["LABEL_MOS"][0] == 'True':
+            if options["LABEL_MOS"][0] == "True":
                 for f in sorted_mos[0]:
-                    f_split = f.split('_')
-                    label = '%s\ \(%s\)' % (f_split[3][:-4],f_split[2])
-                    subprocess.call(("montage -pointsize %s -label %s %s -geometry '%sx%s+0+0>' %s" %
-                        (options["FONTSIZE"][0],label,f,options["IMAGEW"][0],options["IMAGEH"][0],f)), shell=True)
+                    f_split = f.split("_")
+                    label = "%s\\ \\(%s\\)" % (f_split[3][:-4], f_split[2])
+                    subprocess.call(
+                        (
+                            "montage -pointsize %s -label %s %s -geometry '%sx%s+0+0>' %s"
+                            % (
+                                options["FONTSIZE"][0],
+                                label,
+                                f,
+                                options["IMAGEW"][0],
+                                options["IMAGEH"][0],
+                                f,
+                            )
+                        ),
+                        shell=True,
+                    )
 
             # Combine together in one image
             if len(alpha_mos) > 0:
-                subprocess.call(("%s %s -geometry +2+2 AlphaMOs.tga" % (montage_exe," ".join(sorted_mos[0]))), shell=True)
+                subprocess.call(
+                    (
+                        "%s %s -geometry +2+2 AlphaMOs.tga"
+                        % (montage_exe, " ".join(sorted_mos[0]))
+                    ),
+                    shell=True,
+                )
             if len(beta_mos) > 0:
-                subprocess.call(("%s %s -geometry +2+2 BetaMOs.tga" % (montage_exe," ".join(sorted_mos[1]))), shell=True)
+                subprocess.call(
+                    (
+                        "%s %s -geometry +2+2 BetaMOs.tga"
+                        % (montage_exe, " ".join(sorted_mos[1]))
+                    ),
+                    shell=True,
+                )
             if len(densities) > 0:
-                subprocess.call(("%s %s -geometry +2+2 Densities.tga" % (montage_exe," ".join(densities))), shell=True)
+                subprocess.call(
+                    (
+                        "%s %s -geometry +2+2 Densities.tga"
+                        % (montage_exe, " ".join(densities))
+                    ),
+                    shell=True,
+                )
             if len(basis_functions) > 0:
-                subprocess.call(("%s %s -geometry +2+2 BasisFunctions.tga" % (montage_exe," ".join(basis_functions))), shell=True)
+                subprocess.call(
+                    (
+                        "%s %s -geometry +2+2 BasisFunctions.tga"
+                        % (montage_exe, " ".join(basis_functions))
+                    ),
+                    shell=True,
+                )
 
 
-def zip_files(cube_files,options):
+def zip_files(cube_files, options):
     """Gzip cube files if requested or necessary."""
-    if options["GZIP"][0] == 'True':
+    if options["GZIP"][0] == "True":
         print("\nCompressing cube files")
-        FNULL = open(os.devnull, 'w')
-        subprocess.call(("gzip %s" % " ".join(cube_files)),stdout=FNULL, shell=True)
+        FNULL = open(os.devnull, "w")
+        subprocess.call(("gzip %s" % " ".join(cube_files)), stdout=FNULL, shell=True)
 
 
-def get_cumulative_density_iso_value(file,sigma):
+def get_cumulative_density_iso_value(file, sigma):
     """Find the isosurface values that capture a certain amount of the total density (sigma)."""
     cube_data = []
     norm = 0.0
@@ -449,7 +688,7 @@ def get_cumulative_density_iso_value(file,sigma):
                     value = float(s)
                     value_sqr = value * value
                     norm = norm + value_sqr
-                    cube_data.append((value_sqr,value))
+                    cube_data.append((value_sqr, value))
             k = k + 1
 
     cube_data.sort(reverse=True)
@@ -457,7 +696,7 @@ def get_cumulative_density_iso_value(file,sigma):
     sum = 0.0
     positive_iso = 0.0
     negative_iso = 0.0
-    for (value_sqr,value) in cube_data:
+    for value_sqr, value in cube_data:
         if sum < sigma:
             sum = sum + value_sqr / norm
             if value > 0:
@@ -469,14 +708,35 @@ def get_cumulative_density_iso_value(file,sigma):
     return (positive_iso, negative_iso)
 
 
+def convert2png():
+    files = []
+    outdir = options["OUTDIR"][0]
+    for f in listdir(outdir):
+        if f[-4:] == ".tga":
+            files.append(f)
+
+    for file in files:
+        fname = file.split(".")[0]
+        subprocess.call(
+            f"magick {outdir}/{fname}.tga {outdir}/{fname}.png && rm -rf {outdir}/{fname}.tga",
+            shell=True,
+        )
+
+
 def main(argv):
     find_vmd(options)
     read_options(options)
-    save_setup_command(argv)
+    write_header(argv)
     cube_files = find_cubes(options)
-    write_and_run_vmd_script(options,cube_files)
-    call_montage(options,cube_files)
-    zip_files(cube_files,options)
+    write_and_run_vmd_script(options, cube_files)
+    call_montage(options, cube_files)
+    zip_files(cube_files, options)
 
-if __name__ == '__main__':
+    if options["USETGA"][0] == "False" and shutil.which("magick"):
+        # Default TGA files are very large, convert to png if imagemagick installed
+        print("ImageMagick found: converting default TGA output to PNG to save space")
+        convert2png()
+
+
+if __name__ == "__main__":
     main(sys.argv)
